@@ -8,8 +8,9 @@ class WebService(models.Model):
     ip = models.GenericIPAddressField("IP", blank=True, null=True)
     last_check = models.DateTimeField(
         "Ultimo checkpoint", blank=True, null=True)
-    minutes = models.IntegerField("Intervalo en minutos", default=2)
+    minutes = models.PositiveIntegerField("Intervalo en minutos", default=2)
     is_active = models.BooleanField("Activo", default=True)
+    slack_api = models.URLField("Slack Webhook URL", blank=True, null=True)
 
     def __str__(self):
         return '{}:{} cada {} min ({})'.format(

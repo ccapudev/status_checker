@@ -17,11 +17,16 @@ def checker_beat():
         )
     ).filter(
         Q(diff_date__lte=timezone.now()) | 
-        Q(last_check__isnull=True)
+        Q(last_check__isnull=True),
+        is_active=True
     )
     services_to_check_count = services_to_check.count()
     for service in services_to_check:
         check_uri.delay(service.id, service.url)
+    
+    services_to_check.update(
+        last_check=timezone.now()
+    )
     return "This task send {} Services".format(
         services_to_check_count
     )
@@ -34,7 +39,7 @@ def check_uri(service_id=None, url=None):
         url = service.url
     if url:
         try:
-            rq = requests.get(service.url, timeout=(1, 2.5))
+            rq = requests.get(service.url, timeout=(3, 3))
             checkpoint = Checkpoint(
                 web_service_id=service_id,
                 url=rq.url,
@@ -61,20 +66,32 @@ def check_uri(service_id=None, url=None):
                     rq.status_code,
                     checkpoint.id,
                 ))
-            if service:
-                service.last_check = timezone.now()
         except Exception as e:
             reason=str(e)
             traceback_log=traceback.format_exc()
-            CheckpointErrors(
+            checkpoint_error = CheckpointErrors(
                 web_service_id=service_id,
                 url=url,
                 reason=reason,
                 traceback_log=traceback_log,
-            ).save()
-    if service:
-        service.save()
+            )
+            checkpoint_error.save()
+            if service and service.slack_api:
+                send_slack_notification.delay(
+                    service.slack_api, 
+                    checkpoint_error.id
+                )
 
+@shared_task
+def send_slack_notification(slack_api_url, error_id):
+    error = CheckpointErrors.objects.get(id=error_id)
+    requests.post(slack_api_url, json=dict(
+        text="{}\n{}\nErrorID:{}".format(
+            error.url,
+            error.reason,
+            error.id,
+        )
+    ))
 
 @shared_task
 def clear_old_registers(days):
